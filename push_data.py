@@ -41,7 +41,7 @@ def git_sync_and_push():
 
     commit_message = f"Data update (analytics): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
-    branch_name = "main" # Or "master" if that's your branch name
+    branch_name = "master" # Or "master" if that's your branch name
 
     logging.info("Starting Git sync process for analytics_data.json...")
 

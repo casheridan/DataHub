@@ -101,7 +101,7 @@
         let analyticsChart;
         const {
             subDays, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, 
-            startOfQuarter, endOfQuarter, startOfYear, endOfYear, parseISO, isWithinInterval
+            startOfQuarter, endOfQuarter, startOfYear, endOfYear, parseISO, isWithinInterval, startOfDay
         } = window.dateFns;
 
         // --- DOM Elements ---
@@ -188,14 +188,22 @@
             const range = getDateRange(rangeKey);
             document.getElementById('chart-title-date-range').textContent = `Date Range: ${range.label}`;
 
-            const filteredData = rawData.filter(d => isWithinInterval(d.event_date, { start: range.start, end: range.end }));
+            // --- THIS IS THE CORRECTED FILTER LOGIC ---
+            const filteredData = rawData.filter(d => {
+                // Normalize both the data's date and the range's dates to the start of the day
+                const dataDate = startOfDay(d.event_date);
+                const startDate = startOfDay(range.start);
+                const endDate = startOfDay(range.end);
+                // Check if the data's date is within the inclusive start and end dates
+                return dataDate >= startDate && dataDate <= endDate;
+            });
+            // --- END OF CORRECTION ---
 
-            // Check if we have enough historical data for the chosen range
             const oldestRecordDate = rawData.length > 0 ? rawData.reduce((min, p) => p.event_date < min ? p.event_date : min, rawData[0].event_date) : new Date();
             
             if (range.start < oldestRecordDate && ['month', 'quarter', 'year'].includes(rangeKey)) {
                  showNoDataView(`Insufficient data for this period. Earliest record is from ${format(oldestRecordDate, 'MMMM d, yyyy')}.`);
-                 updateStatCards([], rangeKey); // Pass empty data but keep the key for labels
+                 updateStatCards([], rangeKey);
                  return;
             }
 

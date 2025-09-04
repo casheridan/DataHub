@@ -4,6 +4,9 @@ import requests
 import logging
 import subprocess
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Configuration ---
 LOCAL_API_URL = "http://127.0.0.1:8000/analytics"

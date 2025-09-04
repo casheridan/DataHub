@@ -194,15 +194,14 @@ def get_analytics_data():
     Endpoint to provide aggregated event data for the push script.
     This query groups all events by day and stage, counting only the
     unique barcodes at each stage per day to prevent duplicates.
-    Dates are cast in the UTC timezone for consistency.
     """
     sql = """
         SELECT
-            CAST(event_time AT TIME ZONE 'UTC' AS DATE) as event_date,
+            CAST(event_time AS DATE) as event_date,
             stage,
             COUNT(DISTINCT barcode) as event_count
         FROM dbo.events
-        GROUP BY CAST(event_time AT TIME ZONE 'UTC' AS DATE), stage
+        GROUP BY CAST(event_time AS DATE), stage
         ORDER BY event_date, stage;
     """
     try:

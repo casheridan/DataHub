@@ -18,6 +18,15 @@
             color: #ffffff;
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
         }
+        /* --- Add these styles for the navigation bar --- */
+        .nav-link {
+            transition: all 0.2s ease-in-out;
+        }
+        .nav-link.active {
+            background-color: #ffffff;
+            color: #2563eb;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -32,14 +41,13 @@
                     <span class="text-xl font-bold text-gray-800">Data Hub</span>
                 </div>
                 <div class="flex items-center space-x-2 bg-gray-100 p-1 rounded-lg">
-                    <a href="/index.html" class="nav-link px-3 py-1.5 text-sm font-semibold rounded-md text-gray-600">Reel Inventory</a>
-                    <a href="/index.html" class="nav-link px-3 py-1.5 text-sm font-semibold rounded-md text-gray-600">Board Wipe Scrapper</a>
+                    <a href="/index.html#reels" class="nav-link px-3 py-1.5 text-sm font-semibold rounded-md text-gray-600">Reel Inventory</a>
+                    <a href="/index.html#board-wipe" class="nav-link px-3 py-1.5 text-sm font-semibold rounded-md text-gray-600">Board Wipe Scrapper</a>
                     <a href="/dashboard.html" class="nav-link px-3 py-1.5 text-sm font-semibold rounded-md active">Analytics</a>
                 </div>
             </div>
         </div>
     </nav>
-
     <div class="container mx-auto p-4 md:p-8 max-w-7xl">
         <header class="mb-6">
             <h1 class="text-3xl font-bold text-gray-900">Barcode Analytics Dashboard</h1>

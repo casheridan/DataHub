@@ -193,7 +193,18 @@
 
         function initializeApp() {
             setupStaticEventListeners();
+            handleUrlHash(); // <-- Add this line
             loadDatabase().catch(console.error);
+        }
+
+        function handleUrlHash() {
+            const hash = window.location.hash;
+            if (hash === '#board-wipe') {
+                document.getElementById('nav-board-wipe').click();
+            } else {
+                // Default to reels view if no hash or hash is #reels
+                document.getElementById('nav-reels').click();
+            }
         }
 
         function setupStaticEventListeners() {

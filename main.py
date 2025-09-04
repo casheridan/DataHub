@@ -3,11 +3,15 @@
 Fetch every reel, consolidate by ItemCode,
 export to CSV and push into SQLite with rolling
 OldData/NewData tables and timestamps.
+
+Then, commit and push the updated reels.db to GitHub.
 """
 
 import csv
 import math
+import os
 import sqlite3
+import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -21,12 +25,65 @@ from tqdm import tqdm
 BASE_URL = "http://localhost:8081/"
 USERNAME  = "CHRISTIANS"
 PASSWORD  = "ALLYGREEN2019!"
-PAGECOUNT = 1000                       # max rows per API page
+PAGECOUNT = 1000
 CSV_FILE  = "reel_quantities.csv"
 DB_FILE   = "reels.db"
-TIMEOUT   = 60                         # HTTP timeout (s)
-# ─────────────────────────────────────────────────────────
+TIMEOUT   = 60
 
+# ─── GIT CONFIG ──────────────────────────────────────────
+# IMPORTANT: Set these as environment variables for security
+GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") # Your Personal Access Token
+GITHUB_REPO = os.getenv("GITHUB_REPO") # e.g., "my-username/datahub-prod"
+
+# The script assumes it's running from within the git repository folder.
+PROJECT_PATH = os.path.dirname(os.path.realpath(__file__))
+
+# ─── GIT HELPERS ─────────────────────────────────────────
+def run_command(command, working_dir):
+    """Runs a shell command in a specified directory."""
+    print(f"Running command: {' '.join(command)}")
+    try:
+        result = subprocess.run(
+            command,
+            cwd=working_dir,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print(f"Command successful.")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error running command: {e.stderr}")
+        return False
+
+def git_sync_and_push():
+    """Pulls latest changes, adds, commits, and pushes the reels.db file."""
+    if not all([GITHUB_USERNAME, GITHUB_TOKEN, GITHUB_REPO]):
+        print("❌ Git credentials not found in environment variables. Skipping push.")
+        return
+
+    commit_message = f"Data update (reels.db): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
+
+    print("\n syncing with git...")
+
+    # Always pull first to avoid conflicts
+    if not run_command(["git", "pull"], PROJECT_PATH):
+        print("Failed to pull latest changes. Aborting push.")
+        return
+
+    # Check if the data file has actually changed
+    status_check = subprocess.run(["git", "status", "--porcelain"], cwd=PROJECT_PATH, capture_output=True, text=True)
+    if DB_FILE not in status_check.stdout:
+        print("No changes to reels.db. Nothing to commit.")
+        return
+
+    if not run_command(["git", "add", DB_FILE], PROJECT_PATH): return
+    if not run_command(["git", "commit", "-m", commit_message], PROJECT_PATH): return
+    if not run_command(["git", "push", remote_url, "main"], PROJECT_PATH): return
+    
+    print("✅ Successfully pushed data update to GitHub.")
 
 # ─── API HELPERS ─────────────────────────────────────────
 def login_get_token() -> str:
@@ -53,10 +110,6 @@ def fetch_page_xml(token: str, start: int) -> str:
 
 
 def parse_reels(xml: str):
-    """
-    Yield (item_code, avail:int, total:int) for each reel.
-    Tag names are case-normalised.
-    """
     root = ET.fromstring(xml)
     reellist = root.find(".//reellist")
     if reellist is None:
@@ -64,73 +117,38 @@ def parse_reels(xml: str):
 
     for reel in reellist:
         tags = {c.tag.lower(): c.text for c in reel}
-
         item_code = tags.get("itemcode") or tags.get("code")
         qt_avail  = int(float(tags.get("qtavailable") or tags.get("availableqty") or 0))
         qt_total  = int(float(tags.get("qttotal")     or tags.get("quantity")     or 0))
-
-        if item_code and qt_total:       # skip total == 0
+        if item_code and qt_total:
             yield item_code, qt_avail, qt_total
-
 
 # ─── SQLITE HELPER ──────────────────────────────────────
 def push_to_sqlite(rows):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(os.path.join(PROJECT_PATH, DB_FILE))
     cur  = conn.cursor()
-    
-    # Get the current time for this data pull
     current_timestamp = datetime.now().isoformat()
 
-    # Ensure tables exist
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS NewData (
-            item_code TEXT, available_quantity INTEGER, total_quantity INTEGER
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS OldData (
-            item_code TEXT, available_quantity INTEGER, total_quantity INTEGER
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS Metadata (
-            key TEXT PRIMARY KEY, value TEXT
-        )
-    """)
+    cur.execute("CREATE TABLE IF NOT EXISTS NewData (item_code TEXT, available_quantity INTEGER, total_quantity INTEGER)")
+    cur.execute("CREATE TABLE IF NOT EXISTS OldData (item_code TEXT, available_quantity INTEGER, total_quantity INTEGER)")
+    cur.execute("CREATE TABLE IF NOT EXISTS Metadata (key TEXT PRIMARY KEY, value TEXT)")
 
-    # --- Rotate Timestamps ---
-    # Get the timestamp of the current "NewData" before we overwrite it
     cur.execute("SELECT value FROM Metadata WHERE key = 'newDataTimestamp'")
     last_new_timestamp = cur.fetchone()
     
-    # If a timestamp existed for NewData, it now becomes the OldData timestamp
     if last_new_timestamp:
-        cur.execute(
-            "INSERT OR REPLACE INTO Metadata (key, value) VALUES ('oldDataTimestamp', ?)",
-            (last_new_timestamp[0],)
-        )
+        cur.execute("INSERT OR REPLACE INTO Metadata (key, value) VALUES ('oldDataTimestamp', ?)", (last_new_timestamp[0],))
 
-    # --- Rotate Data Tables ---
     cur.execute("DELETE FROM OldData")
     cur.execute("INSERT INTO OldData SELECT * FROM NewData")
     cur.execute("DELETE FROM NewData")
 
-    # Insert new consolidated data
-    cur.executemany(
-        "INSERT INTO NewData (item_code, available_quantity, total_quantity) VALUES (?, ?, ?)",
-        rows
-    )
-    
-    # Insert the new timestamp for the data we just inserted
-    cur.execute(
-        "INSERT OR REPLACE INTO Metadata (key, value) VALUES ('newDataTimestamp', ?)",
-        (current_timestamp,)
-    )
+    cur.executemany("INSERT INTO NewData (item_code, available_quantity, total_quantity) VALUES (?, ?, ?)", rows)
+    cur.execute("INSERT OR REPLACE INTO Metadata (key, value) VALUES ('newDataTimestamp', ?)", (current_timestamp,))
 
     conn.commit()
     conn.close()
     print(f"🧠  SQLite updated → {len(rows)} rows in NewData.")
-
 
 # ─── MAIN WORKFLOW ─────────────────────────────────────
 def main():
@@ -140,10 +158,8 @@ def main():
 
     print(f"🔢  Reels reported by server: {totfound}")
 
-    # Download and consolidate
-    consolidated = defaultdict(lambda: [0, 0])  # item_code → [avail_sum, total_sum]
-    progress = tqdm(total=pages, desc="Downloading reels",
-                    unit="page", dynamic_ncols=True)
+    consolidated = defaultdict(lambda: [0, 0])
+    progress = tqdm(total=pages, desc="Downloading reels", unit="page", dynamic_ncols=True)
 
     for p in range(pages):
         start = p * PAGECOUNT
@@ -160,22 +176,21 @@ def main():
             progress.update(1)
 
     progress.close()
-
-    # Flatten dict → list
     rows = [(ic, avail, total) for ic, (avail, total) in consolidated.items()]
 
-    # CSV export
-    with open(CSV_FILE, "w", newline="") as f:
+    csv_path = os.path.join(PROJECT_PATH, CSV_FILE)
+    with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["item_code", "available_quantity", "total_quantity"])
         writer.writerows(rows)
     print(f"📄  CSV written → {CSV_FILE} ({len(rows)} rows)")
 
-    # SQLite push
     push_to_sqlite(rows)
 
-    print("✅  All done.")
+    # Automatically push the changes to Git
+    git_sync_and_push()
 
+    print("✅  All done.")
 
 if __name__ == "__main__":
     main()

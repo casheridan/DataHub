@@ -155,31 +155,43 @@
         
         function getDateRange(rangeKey) {
             const now = new Date();
+            // Create a new date object based on UTC components to avoid local timezone offsets
+            const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
             switch(rangeKey) {
                 case 'yesterday': {
-                    const yesterday = subDays(now, 1);
-                    return { start: yesterday, end: yesterday, label: format(yesterday, 'MMMM d, yyyy') };
+                    const yesterdayUTC = new Date(todayUTC);
+                    yesterdayUTC.setUTCDate(todayUTC.getUTCDate() - 1);
+                    return { start: yesterdayUTC, end: yesterdayUTC, label: format(yesterdayUTC, 'MMMM d, yyyy') };
                 }
                 case 'week': {
-                    const start = startOfWeek(now);
-                    return { start, end: endOfWeek(now), label: `${format(start, 'MMM d')} - ${format(endOfWeek(now), 'MMM d, yyyy')}` };
-                }
-                case 'last_week': {
-                    const start = startOfWeek(subDays(now, 7));
-                    const end = endOfWeek(subDays(now, 7));
+                    const start = startOfWeek(todayUTC, { weekStartsOn: 1 }); // Assuming week starts on Monday for consistency
+                    const end = endOfWeek(todayUTC, { weekStartsOn: 1 });
                     return { start, end, label: `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}` };
                 }
+                case 'last_week': {
+                    const startOfThisWeek = startOfWeek(todayUTC, { weekStartsOn: 1 });
+                    const start = new Date(startOfThisWeek);
+                    start.setUTCDate(startOfThisWeek.getUTCDate() - 7);
+                    const end = new Date(start);
+                    end.setUTCDate(start.getUTCDate() + 6);
+                    return { start, end, label: `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}` };
+                }
+                // The following ranges are less affected by small timezone shifts but are updated for consistency
                 case 'month': {
-                    const start = startOfMonth(now);
-                    return { start, end: endOfMonth(now), label: format(now, 'MMMM yyyy')};
+                    const start = startOfMonth(todayUTC);
+                    const end = endOfMonth(todayUTC);
+                    return { start, end, label: format(todayUTC, 'MMMM yyyy')};
                 }
                 case 'quarter': {
-                    const start = startOfQuarter(now);
-                    return { start, end: endOfQuarter(now), label: `Q${format(now, 'q')} ${format(now, 'yyyy')}`};
+                    const start = startOfQuarter(todayUTC);
+                    const end = endOfQuarter(todayUTC);
+                    return { start, end, label: `Q${format(todayUTC, 'q')} ${format(todayUTC, 'yyyy')}`};
                 }
                 case 'year': {
-                    const start = startOfYear(now);
-                    return { start, end: endOfYear(now), label: format(now, 'yyyy')};
+                    const start = startOfYear(todayUTC);
+                    const end = endOfYear(todayUTC);
+                    return { start, end, label: format(todayUTC, 'yyyy')};
                 }
             }
         }

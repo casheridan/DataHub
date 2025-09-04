@@ -14,7 +14,7 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") # Your Personal Access Token
 GITHUB_REPO = os.getenv("GITHUB_REPO") # e.g., "my-username/my-vercel-site"
 
 # Path to your cloned git repository folder
-PROJECT_PATH = "C:/path/to/your/cloned/my-vercel-site"
+PROJECT_PATH = "C:/AnalyticsScript"
 OUTPUT_FILENAME = "analytics_data.json"
 OUTPUT_PATH = os.path.join(PROJECT_PATH, OUTPUT_FILENAME)
 

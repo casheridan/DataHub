@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reel Data Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .table-sortable th { cursor: pointer; }
+        .table-sortable th:hover { background-color: #f0f4f8; }
+        .table-sortable th.sorted-asc::after { content: ' ▲'; }
+        .table-sortable th.sorted-desc::after { content: ' ▼'; }
+        
+        .nav-link {
+            transition: all 0.2s ease-in-out;
+        }
+
+        .nav-link.active {
+            background-color: #ffffff;
+            color: #2563eb;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <nav class="bg-white/70 backdrop-blur-lg sticky top-0 z-10 shadow-sm">
+        <div class="container mx-auto px-4 md:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-4">
+                    <svg class="h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
+                    </svg>
+                    <span class="text-xl font-bold text-gray-800">Data Hub</span>
+                </div>
+                <div class="flex items-center space-x-2 bg-gray-100 p-1 rounded-lg">
+                    <button id="nav-reels" class="nav-link px-3 py-1.5 text-sm font-semibold rounded-md active">Reel Inventory</button>
+                    <button id="nav-board-wipe" class="nav-link px-3 py-1.5 text-sm font-semibold rounded-md text-gray-600">Board Wipe Scrapper</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div id="reel-inventory-view">
+        <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+            <header class="mb-6">
+                <h1 class="text-3xl font-bold text-gray-900">Reel Inventory Viewer</h1>
+                <p class="text-gray-600 mt-1">Live data comparison for reel quantities.</p>
+                <p class="mt-4 text-sm text-blue-700 bg-blue-100 p-3 rounded-lg border border-blue-200 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                      <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.414L11 10.586V6z" clip-rule="evenodd" />
+                    </svg>
+                    Data automatically updates every Friday at 3:30 PM CST.
+                </p>
+            </header>
+
+            <main id="app-container" class="bg-white p-6 rounded-xl shadow-md">
+                <div id="loading-state" class="text-center py-12">
+                    <p class="text-lg font-medium">Loading Database...</p>
+                    <p class="text-gray-500 mt-2">Attempting to fetch `reels.db`. Please wait.</p>
+                </div>
+                
+                <div id="error-state" class="hidden text-center py-12 bg-red-50 rounded-lg">
+                    <h3 class="text-xl font-bold text-red-700">Failed to Load Database</h3>
+                    <p id="error-message" class="mt-2 text-red-600 max-w-2xl mx-auto"></p>
+                </div>
+
+                <div id="data-view" class="hidden">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                        <div class="flex space-x-2 rounded-lg bg-gray-200 p-1">
+                            <button id="btn-new" class="px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-white shadow text-blue-600">New Data</button>
+                            <button id="btn-old" class="px-4 py-2 text-sm font-semibold rounded-md transition-colors text-gray-700">Old Data</button>
+                            <button id="btn-diff" class="px-4 py-2 text-sm font-semibold rounded-md transition-colors text-gray-700">Differences</button>
+                        </div>
+                         <div class="flex items-center gap-4">
+                            <div class="relative w-full md:w-64">
+                                <input type="text" id="search-box" placeholder="Search item code..." class="w-full pl-4 pr-10 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                         </div>
+                    </div>
+
+                    <!-- Timestamp Display Area -->
+                    <div id="data-timestamp" class="text-sm text-gray-500 mb-4 p-3 bg-gray-50 rounded-lg border">
+                        Loading timestamp information...
+                    </div>
+                    
+                    <div class="overflow-x-auto border rounded-lg shadow-sm">
+                        <table id="data-table" class="min-w-full divide-y divide-gray-200 table-sortable">
+                            <thead class="bg-gray-50">
+                                <!-- Header will be dynamically generated -->
+                            </thead>
+                            <tbody class="bg-white divide-y-2 divide-gray-200">
+                                <!-- Rows will be dynamically generated -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p id="row-count" class="text-sm text-gray-500 mt-4 text-right"></p>
+                </div>
+            </main>
+        </div>
+        <footer class="text-center mt-8 text-sm text-gray-500">
+            <p>Reel Viewer Utility</p>
+        </footer>
+    </div>
+    
+    <div id="board-wipe-view" class="hidden">
+        <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+            <header class="mb-6">
+                <h1 class="text-3xl font-bold text-gray-900">Board Wipe Scrapper</h1>
+                <p class="text-gray-600 mt-1">Parse a Bill of Materials (BOM) to calculate parts needed for scrapping boards.</p>
+            </header>
+            <main class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <h2 class="text-xl font-bold mb-4">1. Upload BOM File</h2>
+                     <div id="bom-dropzone" class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+                        <div class="space-y-1 text-center">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                            <div class="flex text-sm text-gray-600">
+                                <label for="bom-upload" class="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                                    <span>Upload a file</span>
+                                    <input id="bom-upload" name="bom-upload" type="file" class="sr-only" accept=".xlsx, .xls">
+                                </label>
+                                <p class="pl-1">or drag and drop</p>
+                            </div>
+                            <p class="text-xs text-gray-500">XLSX or XLS files</p>
+                        </div>
+                    </div>
+                    <p id="bom-filename" class="text-sm text-center text-gray-500 mt-2 font-medium"></p>
+                    <div class="mt-4">
+                        <label for="board-quantity" class="block text-sm font-medium text-gray-700">How many boards are you wiping?</label>
+                        <input type="number" id="board-quantity" value="1" min="1" class="mt-1 block w-full p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold">2. Scrap List</h2>
+                        <button id="export-csv-btn" class="hidden px-4 py-2 text-sm font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1zm3.293-7.707a1 1 0 0 1 1.414 0L9 10.586V3a1 1 0 1 1 2 0v7.586l1.293-1.293a1 1 0 1 1 1.414 1.414l-3 3a1 1 0 0 1-1.414 0l-3-3a1 1 0 0 1 0-1.414z" clip-rule="evenodd" /></svg>
+                            Export as CSV
+                        </button>
+                    </div>
+                    <div id="scrap-list-container" class="overflow-auto border rounded-lg" style="max-height: 400px;">
+                        <table class="min-w-full">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part #</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scrap Quantity</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scrap-list-body" class="bg-white divide-y divide-gray-200">
+                                <tr><td colspan="3" class="p-4 text-center text-gray-500">Upload a BOM to see the results.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+
+    <script type="module">
+        let db;
+        let newData = [], oldData = [], diffData = [];
+        let parsedBomData = [];
+        let scrapData = [];
+        let newDataTimestamp, oldDataTimestamp;
+        let currentSort = { column: null, direction: 'asc' };
+        let currentView = 'NewData';
+
+        // --- DOM Elements ---
+        const loadingState = document.getElementById('loading-state');
+        const errorState = document.getElementById('error-state');
+        const errorMessage = document.getElementById('error-message');
+        const dataView = document.getElementById('data-view');
+        const table = document.getElementById('data-table');
+        const searchBox = document.getElementById('search-box');
+        const bomUpload = document.getElementById('bom-upload');
+        const bomFilename = document.getElementById('bom-filename');
+        const boardQuantityInput = document.getElementById('board-quantity');
+        const scrapListBody = document.getElementById('scrap-list-body');
+        const exportCsvBtn = document.getElementById('export-csv-btn');
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', initializeApp);
+
+        function initializeApp() {
+            setupStaticEventListeners();
+            loadDatabase().catch(console.error);
+        }
+
+        function setupStaticEventListeners() {
+            // Nav logic
+            const navReels = document.getElementById('nav-reels');
+            const navBoardWipe = document.getElementById('nav-board-wipe');
+            const reelView = document.getElementById('reel-inventory-view');
+            const boardWipeView = document.getElementById('board-wipe-view');
+            
+            navReels.addEventListener('click', () => {
+                reelView.classList.remove('hidden');
+                boardWipeView.classList.add('hidden');
+                navReels.classList.add('active');
+                navBoardWipe.classList.remove('active');
+            });
+
+            navBoardWipe.addEventListener('click', () => {
+                reelView.classList.add('hidden');
+                boardWipeView.classList.remove('hidden');
+                navReels.classList.remove('active');
+                navBoardWipe.classList.add('active');
+            });
+
+            // Board Wipe Listeners
+            bomUpload.addEventListener('change', handleBomFileUpload);
+            boardQuantityInput.addEventListener('input', calculateAndRenderScrapList);
+            exportCsvBtn.addEventListener('click', exportToCSV);
+        }
+        
+        // --- Board Wipe Logic ---
+        function handleBomFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            bomFilename.textContent = `File: ${file.name}`;
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    parsedBomData = [];
+                    // Skip header (i=0) and parse rows
+                    for (let i = 1; i < sheetData.length; i++) {
+                        const row = sheetData[i];
+                        if (!row || row.length < 3) continue;
+
+                        const partNumber = row[0]; // Column A
+                        const description = row[1]; // Column B
+                        const quantity = parseInt(row[2], 10); // Column C
+
+                        if (partNumber && description && !isNaN(quantity)) {
+                            parsedBomData.push({ partNumber, description, quantity });
+                        }
+                    }
+                    calculateAndRenderScrapList();
+                } catch (error) {
+                    console.error("Error processing XLSX file:", error);
+                    scrapListBody.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-red-500">Failed to process the Excel file. It may be corrupt or in an unexpected format.</td></tr>`;
+                }
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+
+        function calculateAndRenderScrapList() {
+            const boardCount = parseInt(boardQuantityInput.value, 10);
+            if (parsedBomData.length === 0) {
+                 scrapListBody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500">Upload a BOM to see the results.</td></tr>';
+                 exportCsvBtn.classList.add('hidden');
+                return;
+            }
+             if (isNaN(boardCount) || boardCount < 1) {
+                scrapListBody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-red-500">Please enter a valid board quantity.</td></tr>';
+                exportCsvBtn.classList.add('hidden');
+                return;
+            }
+
+            scrapData = parsedBomData.map(item => ({
+                partNumber: item.partNumber,
+                description: item.description,
+                scrapQuantity: item.quantity * boardCount
+            }));
+
+            renderScrapList(scrapData);
+        }
+
+        function renderScrapList(data) {
+            scrapListBody.innerHTML = '';
+            if (data.length === 0) {
+                 scrapListBody.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-gray-500">No valid parts found in BOM file.</td></tr>';
+                 exportCsvBtn.classList.add('hidden');
+                 return;
+            }
+            
+            data.forEach(item => {
+                const tr = scrapListBody.insertRow();
+                tr.insertCell().textContent = item.partNumber;
+                tr.cells[0].className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono';
+                
+                tr.insertCell().textContent = item.description;
+                tr.cells[1].className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-800';
+
+                tr.insertCell().textContent = item.scrapQuantity;
+                tr.cells[2].className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-semibold';
+            });
+            exportCsvBtn.classList.remove('hidden');
+        }
+
+        function exportToCSV() {
+            if (scrapData.length === 0) return;
+
+            let csvContent = "Part #,Description,Scrap Quantity\n";
+            scrapData.forEach(row => {
+                const description = `"${String(row.description || '').replace(/"/g, '""')}"`;
+                csvContent += `${row.partNumber},${description},${row.scrapQuantity}\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "scrap_list.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // --- Reel Inventory Logic ---
+        async function loadDatabase() {
+            try {
+                const config = {
+                    locateFile: filename => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${filename}`
+                };
+                const sqlPromise = initSqlJs(config);
+                const dataPromise = fetch('./reels.db', { cache: 'no-store' }).then(res => {
+                    if (!res.ok) {
+                        throw new Error(`HTTP error! Status: ${res.status} ${res.statusText}. Ensure 'reels.db' is in the same directory as this viewer and you are running this from a web server.`);
+                    }
+                    return res.arrayBuffer();
+                });
+        
+                const [SQL, buffer] = await Promise.all([sqlPromise, dataPromise]);
+                db = new SQL.Database(new Uint8Array(buffer));
+        
+                newData = fetchDataFromTable('NewData');
+                oldData = fetchDataFromTable('OldData');
+                fetchTimestamps();
+                calculateDifferences();
+
+                loadingState.classList.add('hidden');
+                dataView.classList.remove('hidden');
+                
+                renderTable(newData, 'NewData');
+                setupReelInventoryEventListeners();
+
+            } catch (error) {
+                console.error("Database loading failed:", error);
+                loadingState.classList.add('hidden');
+                errorMessage.textContent = error.message;
+                errorState.classList.remove('hidden');
+            }
+        }
+
+        function setupReelInventoryEventListeners() {
+            const dataButtons = {
+                'btn-new': { data: () => newData, name: 'NewData' },
+                'btn-old': { data: () => oldData, name: 'OldData' },
+                'btn-diff': { data: () => diffData, name: 'Differences' }
+            };
+            const btnElements = document.querySelectorAll('#btn-new, #btn-old, #btn-diff');
+
+            Object.entries(dataButtons).forEach(([id, { data, name }]) => {
+                document.getElementById(id).addEventListener('click', () => {
+                    renderTable(data(), name);
+                    btnElements.forEach(btn => {
+                        btn.classList.remove('bg-white', 'shadow', 'text-blue-600');
+                        btn.classList.add('text-gray-700');
+                    });
+                    document.getElementById(id).classList.add('bg-white', 'shadow', 'text-blue-600');
+                    document.getElementById(id).classList.remove('text-gray-700');
+                });
+            });
+
+            searchBox.addEventListener('input', () => {
+                const dataMap = { 'NewData': newData, 'OldData': oldData, 'Differences': diffData };
+                renderTable(dataMap[currentView], currentView);
+            });
+        }
+
+        function fetchDataFromTable(tableName) {
+            try {
+                const stmt = db.prepare(`SELECT * FROM ${tableName}`);
+                const data = [];
+                while (stmt.step()) {
+                    data.push(stmt.getAsObject());
+                }
+                stmt.free();
+                return data;
+            } catch (e) {
+                console.warn(`Could not read table '${tableName}'. It might not exist yet.`);
+                return [];
+            }
+        }
+
+        function fetchTimestamps() {
+            try {
+                const results = db.exec("SELECT key, value FROM Metadata");
+                if (results.length > 0) {
+                    const metadata = Object.fromEntries(results[0].values);
+                    newDataTimestamp = metadata.newDataTimestamp;
+                    oldDataTimestamp = metadata.oldDataTimestamp;
+                }
+            } catch (e) {
+                console.warn("Could not read Metadata table. Timestamps will be unavailable.");
+            }
+        }
+
+        function formatTimestamp(isoString) {
+            if (!isoString) return 'Not Available';
+            try {
+                const date = new Date(isoString);
+                return date.toLocaleString(undefined, {
+                    year: 'numeric', month: 'long', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            } catch (e) {
+                return 'Invalid Date';
+            }
+        }
+
+        function calculateDifferences() {
+            const oldMap = new Map(oldData.map(item => [item.item_code, item]));
+            const newMap = new Map(newData.map(item => [item.item_code, item]));
+            diffData = [];
+
+            for (const [item_code, oldItem] of oldMap.entries()) {
+                if (newMap.has(item_code)) {
+                    const newItem = newMap.get(item_code);
+                    if (oldItem.available_quantity !== newItem.available_quantity || oldItem.total_quantity !== newItem.total_quantity) {
+                        diffData.push({ status: 'changed', item_code, ...newItem, old_available: oldItem.available_quantity, old_total: oldItem.total_quantity });
+                    }
+                } else {
+                    diffData.push({ status: 'removed', item_code, ...oldItem });
+                }
+            }
+            for (const [item_code, newItem] of newMap.entries()) {
+                if (!oldMap.has(item_code)) {
+                    diffData.push({ status: 'added', item_code, ...newItem });
+                }
+            }
+        }
+
+        function renderTable(data, tableName) {
+            currentView = tableName;
+            const thead = document.createElement('thead');
+            thead.className = 'bg-gray-50';
+            const tbody = document.createElement('tbody');
+            tbody.className = 'bg-white';
+            
+            const timestampDiv = document.getElementById('data-timestamp');
+            if (tableName === 'NewData') {
+                timestampDiv.innerHTML = `<strong>Current Data Snapshot:</strong> ${formatTimestamp(newDataTimestamp)}`;
+                 tbody.classList.add('divide-y', 'divide-gray-200');
+            } else if (tableName === 'OldData') {
+                timestampDiv.innerHTML = `<strong>Previous Data Snapshot:</strong> ${formatTimestamp(oldDataTimestamp)}`;
+                 tbody.classList.add('divide-y', 'divide-gray-200');
+            } else {
+                timestampDiv.innerHTML = `<strong>Comparison:</strong> Previous (as of ${formatTimestamp(oldDataTimestamp)}) vs. Current (as of ${formatTimestamp(newDataTimestamp)})`;
+                tbody.classList.remove('divide-y', 'divide-gray-200');
+            }
+
+            if (data.length === 0) {
+                const row = tbody.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = 5;
+                cell.textContent = 'No data to display.';
+                cell.className = 'text-center py-4 px-6 text-gray-500';
+                table.innerHTML = '';
+                thead.innerHTML = `<tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Info</th></tr>`;
+                table.append(thead, tbody);
+                document.getElementById('row-count').textContent = `0 rows`;
+                return;
+            }
+
+            let headers;
+            if (tableName === 'Differences') {
+                headers = ['Status', 'Item Code', 'Available Quantity Change', 'Total Quantity Change'];
+            } else {
+                headers = Object.keys(data[0]).map(h => h.replace(/_/g, ' '));
+            }
+
+            const headerRow = document.createElement('tr');
+            headers.forEach(headerText => {
+                const th = document.createElement('th');
+                th.textContent = headerText;
+                th.className = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+                if (tableName !== 'Differences') {
+                    const columnKey = headerText.replace(/ /g, '_');
+                    th.dataset.column = columnKey;
+                    if (currentSort.column === columnKey) {
+                        th.classList.add(currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                    }
+                }
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+
+            let visibleData = filterData(data, searchBox.value);
+            
+            visibleData.forEach(row => {
+                const tr = tbody.insertRow();
+
+                if (tableName === 'Differences') {
+                    if (row.status === 'added') tr.className = 'bg-green-50 hover:bg-green-100 transition-colors';
+                    else if (row.status === 'removed') tr.className = 'bg-red-50 hover:bg-red-100 transition-colors';
+                    else tr.className = 'hover:bg-gray-50 transition-colors';
+                    
+                    const statusCell = tr.insertCell();
+                    statusCell.className = 'px-6 py-4 whitespace-nowrap text-sm font-semibold';
+                    if (row.status === 'added') statusCell.innerHTML = `<span class="text-green-700">+ Added</span>`;
+                    else if (row.status === 'removed') statusCell.innerHTML = `<span class="text-red-700">- Removed</span>`;
+                    else statusCell.innerHTML = `<span class="text-yellow-700">~ Changed</span>`;
+                    
+                    tr.insertCell().textContent = row.item_code;
+                    tr.cells[1].className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono';
+
+                    const availCell = tr.insertCell();
+                    availCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600';
+
+                    const totalCell = tr.insertCell();
+                    totalCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600';
+
+                    const formatDiff = (diff) => {
+                        if (diff > 0) return `<span class="text-green-600 font-medium">(+${diff})</span>`;
+                        if (diff < 0) return `<span class="text-red-600 font-medium">(${diff})</span>`;
+                        return ``;
+                    };
+
+                    if (row.status === 'changed') {
+                        const availDiff = row.available_quantity - row.old_available;
+                        const totalDiff = row.total_quantity - row.old_total;
+                        availCell.innerHTML = `${row.old_available} → <strong>${row.available_quantity}</strong> ${formatDiff(availDiff)}`;
+                        totalCell.innerHTML = `${row.old_total} → <strong>${row.total_quantity}</strong> ${formatDiff(totalDiff)}`;
+                    } else if (row.status === 'added') {
+                        availCell.innerHTML = `<strong class="text-green-700">+ ${row.available_quantity}</strong>`;
+                        totalCell.innerHTML = `<strong class="text-green-700">+ ${row.total_quantity}</strong>`;
+                    } else if (row.status === 'removed') {
+                        availCell.innerHTML = `<strong class="text-red-700">- ${row.available_quantity}</strong>`;
+                        totalCell.innerHTML = `<strong class="text-red-700">- ${row.total_quantity}</strong>`;
+                    }
+                } else {
+                    tr.className = 'hover:bg-gray-50 transition-colors';
+                    Object.values(row).forEach(text => {
+                        const td = tr.insertCell();
+                        td.textContent = text;
+                        td.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-600';
+                    });
+                }
+            });
+
+            table.innerHTML = '';
+            table.append(thead, tbody);
+            table.querySelector('thead').addEventListener('click', handleSort);
+            document.getElementById('row-count').textContent = `${visibleData.length} of ${data.length} rows`;
+        }
+        
+        function filterData(data, searchTerm) {
+            if (!searchTerm) return data;
+            const lowercasedTerm = searchTerm.toLowerCase();
+            return data.filter(row => row.item_code.toLowerCase().includes(lowercasedTerm));
+        }
+        
+        function sortData(data, column, direction) {
+            return [...data].sort((a, b) => {
+                let aVal = a[column];
+                let bVal = b[column];
+                if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+                if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+                if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        
+        function handleSort(e) {
+            const th = e.target.closest('th');
+            if (!th || !th.dataset.column || currentView === 'Differences') return;
+
+            const column = th.dataset.column;
+            let direction = 'asc';
+            if (currentSort.column === column && currentSort.direction === 'asc') direction = 'desc';
+            
+            currentSort = { column, direction };
+            const dataMap = { 'NewData': newData, 'OldData': oldData };
+            const sortedData = sortData(dataMap[currentView], column, direction);
+            
+            if (currentView === 'NewData') newData = sortedData;
+            else if (currentView === 'OldData') oldData = sortedData;
+
+            renderTable(sortedData, currentView);
+        }
+
+    </script>
+</body>
+</html>
+

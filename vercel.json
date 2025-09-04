@@ -1,0 +1,17 @@
+{
+    "headers": [
+        {
+            "source": "/reels.db",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/x-sqlite3"
+                },
+                {
+                    "key": "Cache-Control",
+                    "value": "no-cache, no-store, must-revalidate"
+                }
+            ]
+        }
+    ]
+}

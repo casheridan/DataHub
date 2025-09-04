@@ -65,23 +65,26 @@ def git_sync_and_push():
 
     commit_message = f"Data update (reels.db): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
+    branch_name = "main" # Or "master" if that's your branch name
 
     print("\n syncing with git...")
 
-    # Always pull first to avoid conflicts
-    if not run_command(["git", "pull"], PROJECT_PATH):
-        print("Failed to pull latest changes. Aborting push.")
+    # Always pull first
+    if not run_command(["git", "pull", remote_url, branch_name], PROJECT_PATH):
+        print("Failed to pull latest changes. Please check for conflicts.")
         return
 
-    # Check if the data file has actually changed
-    status_check = subprocess.run(["git", "status", "--porcelain"], cwd=PROJECT_PATH, capture_output=True, text=True)
-    if DB_FILE not in status_check.stdout:
-        print("No changes to reels.db. Nothing to commit.")
-        return
-
+    # Stage the database file
     if not run_command(["git", "add", DB_FILE], PROJECT_PATH): return
-    if not run_command(["git", "commit", "-m", commit_message], PROJECT_PATH): return
-    if not run_command(["git", "push", remote_url, "main"], PROJECT_PATH): return
+
+    # Commit with --allow-empty
+    if not run_command(["git", "commit", "-m", commit_message, "--allow-empty"], PROJECT_PATH):
+        print("Commit failed, continuing to push.")
+
+    # Push to remote
+    if not run_command(["git", "push", remote_url, f"HEAD:{branch_name}"], PROJECT_PATH):
+        print("Failed to push to remote repository.")
+        return
     
     print("✅ Successfully pushed data update to GitHub.")
 

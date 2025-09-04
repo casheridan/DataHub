@@ -192,13 +192,14 @@ async def ingest(p: IngestPayload):
 def get_analytics_data():
     """
     Endpoint to provide aggregated event data for the push script.
-    This query groups all events by day and stage.
+    This query groups all events by day and stage, counting only the
+    unique barcodes at each stage per day to prevent duplicates.
     """
     sql = """
         SELECT
             CAST(event_time AS DATE) as event_date,
             stage,
-            COUNT(barcode) as event_count
+            COUNT(DISTINCT barcode) as event_count
         FROM dbo.events
         GROUP BY CAST(event_time AS DATE), stage
         ORDER BY event_date, stage;

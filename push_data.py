@@ -35,23 +35,35 @@ def run_command(command, working_dir):
 
 def git_sync_and_push():
     """Pulls latest changes, adds, commits, and pushes the data file."""
-    commit_message = f"Data update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    if not all([GITHUB_USERNAME, GITHUB_TOKEN, GITHUB_REPO]):
+        logging.error("Missing Git credentials in environment variables. Aborting push.")
+        return
+
+    commit_message = f"Data update (analytics): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/{GITHUB_REPO}.git"
+    branch_name = "main" # Or "master" if that's your branch name
 
-    # Always pull first to avoid conflicts
-    if not run_command(["git", "pull"], PROJECT_PATH):
-        logging.error("Failed to pull latest changes. Aborting push.")
-        return False
+    logging.info("Starting Git sync process for analytics_data.json...")
 
-    # Check if the data file has actually changed
-    status_check = subprocess.run(["git", "status", "--porcelain"], cwd=PROJECT_PATH, capture_output=True, text=True)
-    if OUTPUT_FILENAME not in status_check.stdout:
-        logging.info("No changes to analytics_data.json. Nothing to commit.")
-        return True
+    # Always pull first to avoid merge conflicts
+    if not run_command(["git", "pull", remote_url, branch_name], PROJECT_PATH):
+        logging.error("Failed to pull latest changes from remote. Please check for conflicts.")
+        return
 
-    if not run_command(["git", "add", OUTPUT_FILENAME], PROJECT_PATH): return False
-    if not run_command(["git", "commit", "-m", commit_message], PROJECT_PATH): return False
-    if not run_command(["git", "push", remote_url, "master"], PROJECT_PATH): return False
+    # Stage the data file
+    if not run_command(["git", "add", OUTPUT_FILENAME], PROJECT_PATH): return
+
+    # Commit the changes. The --allow-empty flag is key.
+    # It creates a commit even if there are no changes, preventing an error.
+    # Git is smart enough not to create a redundant commit if the file is truly identical.
+    if not run_command(["git", "commit", "-m", commit_message, "--allow-empty"], PROJECT_PATH):
+        logging.warning("Commit failed. This might be okay if there were no changes.")
+        # We continue because the push might still be needed for other reasons.
+
+    # Push to the remote repository
+    if not run_command(["git", "push", remote_url, f"HEAD:{branch_name}"], PROJECT_PATH):
+        logging.error("Failed to push to remote repository.")
+        return
     
     logging.info("Successfully pushed data update to GitHub.")
     return True

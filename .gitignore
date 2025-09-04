@@ -2,3 +2,5 @@
 venv
 *.csv
 node_modules
+.env
+logs/

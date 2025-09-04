@@ -51,7 +51,7 @@ def git_sync_and_push():
 
     if not run_command(["git", "add", OUTPUT_FILENAME], PROJECT_PATH): return False
     if not run_command(["git", "commit", "-m", commit_message], PROJECT_PATH): return False
-    if not run_command(["git", "push", remote_url, "main"], PROJECT_PATH): return False
+    if not run_command(["git", "push", remote_url, "master"], PROJECT_PATH): return False
     
     logging.info("Successfully pushed data update to GitHub.")
     return True

@@ -186,6 +186,40 @@ async def ingest(p: IngestPayload):
     except Exception as e:
         log.exception("Unhandled error")
         raise HTTPException(status_code=500, detail=str(e))
+    
+    
+@app.get("/analytics")
+def get_analytics_data():
+    """
+    Endpoint to provide aggregated event data for the push script.
+    This query groups all events by day and stage.
+    """
+    sql = """
+        SELECT
+            CAST(event_time AS DATE) as event_date,
+            stage,
+            COUNT(barcode) as event_count
+        FROM dbo.events
+        GROUP BY CAST(event_time AS DATE), stage
+        ORDER BY event_date, stage;
+    """
+    try:
+        with get_conn() as cx:
+            rows = cx.cursor().execute(sql).fetchall()
+        
+        # Format the data for easy JSON consumption
+        results = [
+            {
+                "event_date": row.event_date.isoformat(),
+                "stage": row.stage,
+                "count": row.event_count,
+            }
+            for row in rows
+        ]
+        return results
+    except pyodbc.Error as e:
+        log.exception("Database error in /analytics")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
 @app.get("/stages")

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Dashboard - Data Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@3.6.0/cdn.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .filter-btn {
+            transition: all 0.2s ease-in-out;
+        }
+        .filter-btn.active {
+            background-color: #2563eb;
+            color: #ffffff;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <nav class="bg-white/70 backdrop-blur-lg sticky top-0 z-10 shadow-sm">
+        <div class="container mx-auto px-4 md:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-4">
+                    <svg class="h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
+                    </svg>
+                    <span class="text-xl font-bold text-gray-800">Data Hub</span>
+                </div>
+                </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">Barcode Analytics Dashboard</h1>
+            <p class="text-gray-600 mt-1">Daily and weekly processing statistics.</p>
+        </header>
+
+        <main id="app-container" class="space-y-8">
+            <div id="loading-state" class="text-center py-12 bg-white p-6 rounded-xl shadow-md">
+                <p class="text-lg font-medium">Loading Analytics Data...</p>
+                <p class="text-gray-500 mt-2">Attempting to fetch `analytics_data.json`.</p>
+            </div>
+            
+            <div id="error-state" class="hidden text-center py-12 bg-red-50 rounded-lg p-6">
+                <h3 class="text-xl font-bold text-red-700">Failed to Load Analytics</h3>
+                <p id="error-message" class="mt-2 text-red-600 max-w-2xl mx-auto"></p>
+            </div>
+
+            <div id="dashboard-view" class="hidden space-y-8">
+                <div class="bg-white p-3 rounded-xl shadow-md">
+                    <div class="flex flex-wrap items-center gap-2" id="timeframe-filters">
+                        <button data-range="yesterday" class="filter-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 active">Yesterday</button>
+                        <button data-range="week" class="filter-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200">This Week</button>
+                        <button data-range="last_week" class="filter-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200">Last Week</button>
+                        <button data-range="month" class="filter-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200">Month</button>
+                        <button data-range="quarter" class="filter-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200">Quarter</button>
+                        <button data-range="year" class="filter-btn px-4 py-2 text-sm font-semibold rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200">Year</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="stat-cards">
+                    </div>
+                
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <h2 class="text-xl font-bold mb-1">Events per Stage</h2>
+                    <p id="chart-title-date-range" class="text-sm text-gray-500 mb-4">Date Range:</p>
+                    <div id="no-data-view" class="hidden text-center py-16">
+                        <h3 class="text-xl font-semibold text-gray-600">No Data Available</h3>
+                        <p class="text-gray-500 mt-2">There is no event data for the selected timeframe.</p>
+                    </div>
+                    <div id="chart-container" class="relative h-96">
+                        <canvas id="analytics-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        // --- Globals ---
+        let rawData = [];
+        let analyticsChart;
+        const {
+            subDays, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, 
+            startOfQuarter, endOfQuarter, startOfYear, endOfYear, parseISO, isWithinInterval
+        } = window.dateFns;
+
+        // --- DOM Elements ---
+        const loadingState = document.getElementById('loading-state');
+        const errorState = document.getElementById('error-state');
+        const errorMessage = document.getElementById('error-message');
+        const dashboardView = document.getElementById('dashboard-view');
+        const chartCanvas = document.getElementById('analytics-chart');
+        const noDataView = document.getElementById('no-data-view');
+        const chartContainer = document.getElementById('chart-container');
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', initializeDashboard);
+
+        async function initializeDashboard() {
+            try {
+                const response = await fetch('./analytics_data.json', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}. Could not find 'analytics_data.json'.`);
+                }
+                rawData = await response.json();
+                // Convert date strings to Date objects for easier filtering
+                rawData.forEach(d => d.event_date = parseISO(d.event_date));
+
+                loadingState.classList.add('hidden');
+                dashboardView.classList.remove('hidden');
+                
+                setupEventListeners();
+                // Trigger the default view
+                document.querySelector('[data-range="yesterday"]').click();
+
+            } catch (error) {
+                console.error("Dashboard loading failed:", error);
+                loadingState.classList.add('hidden');
+                errorMessage.textContent = error.message;
+                errorState.classList.remove('hidden');
+            }
+        }
+
+        function setupEventListeners() {
+            const filterButtons = document.querySelectorAll('#timeframe-filters button');
+            filterButtons.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    filterButtons.forEach(b => b.classList.remove('active'));
+                    e.currentTarget.classList.add('active');
+                    const range = e.currentTarget.dataset.range;
+                    updateDashboard(range);
+                });
+            });
+        }
+        
+        function getDateRange(rangeKey) {
+            const now = new Date();
+            switch(rangeKey) {
+                case 'yesterday': {
+                    const yesterday = subDays(now, 1);
+                    return { start: yesterday, end: yesterday, label: format(yesterday, 'MMMM d, yyyy') };
+                }
+                case 'week': {
+                    const start = startOfWeek(now);
+                    return { start, end: endOfWeek(now), label: `${format(start, 'MMM d')} - ${format(endOfWeek(now), 'MMM d, yyyy')}` };
+                }
+                case 'last_week': {
+                    const start = startOfWeek(subDays(now, 7));
+                    const end = endOfWeek(subDays(now, 7));
+                    return { start, end, label: `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}` };
+                }
+                case 'month': {
+                    const start = startOfMonth(now);
+                    return { start, end: endOfMonth(now), label: format(now, 'MMMM yyyy')};
+                }
+                case 'quarter': {
+                    const start = startOfQuarter(now);
+                    return { start, end: endOfQuarter(now), label: `Q${format(now, 'q')} ${format(now, 'yyyy')}`};
+                }
+                case 'year': {
+                    const start = startOfYear(now);
+                    return { start, end: endOfYear(now), label: format(now, 'yyyy')};
+                }
+            }
+        }
+
+        function updateDashboard(rangeKey) {
+            const range = getDateRange(rangeKey);
+            document.getElementById('chart-title-date-range').textContent = `Date Range: ${range.label}`;
+
+            const filteredData = rawData.filter(d => isWithinInterval(d.event_date, { start: range.start, end: range.end }));
+
+            // Check if we have enough historical data for the chosen range
+            const oldestRecordDate = rawData.length > 0 ? rawData.reduce((min, p) => p.event_date < min ? p.event_date : min, rawData[0].event_date) : new Date();
+            
+            if (range.start < oldestRecordDate && ['month', 'quarter', 'year'].includes(rangeKey)) {
+                 showNoDataView(`Insufficient data for this period. Earliest record is from ${format(oldestRecordDate, 'MMMM d, yyyy')}.`);
+                 updateStatCards([], rangeKey); // Pass empty data but keep the key for labels
+                 return;
+            }
+
+            if (filteredData.length === 0) {
+                showNoDataView();
+                updateStatCards([], rangeKey);
+                return;
+            }
+            
+            hideNoDataView();
+            const aggregatedData = aggregateDataByStage(filteredData);
+            renderChart(aggregatedData);
+            updateStatCards(filteredData, rangeKey);
+        }
+        
+        function aggregateDataByStage(data) {
+            const stageMap = new Map();
+            data.forEach(item => {
+                const currentCount = stageMap.get(item.stage) || 0;
+                stageMap.set(item.stage, currentCount + item.count);
+            });
+            // Sort by stage name for consistent chart order
+            return new Map([...stageMap.entries()].sort());
+        }
+
+        function showNoDataView(message = "There is no event data for the selected timeframe.") {
+            noDataView.classList.remove('hidden');
+            chartContainer.classList.add('hidden');
+            noDataView.querySelector('p').textContent = message;
+        }
+
+        function hideNoDataView() {
+            noDataView.classList.add('hidden');
+            chartContainer.classList.remove('hidden');
+        }
+        
+        function updateStatCards(data, rangeKey) {
+            const container = document.getElementById('stat-cards');
+            const totalEvents = data.reduce((sum, item) => sum + item.count, 0);
+            
+            let avgEvents = 0;
+            const uniqueDays = new Set(data.map(d => format(d.event_date, 'yyyy-MM-dd'))).size;
+            if (uniqueDays > 0) {
+                avgEvents = (totalEvents / uniqueDays).toFixed(1);
+            }
+            
+            const topStage = data.length > 0 ? [...aggregateDataByStage(data).entries()].reduce((a, b) => a[1] > b[1] ? a : b) : ['N/A', 0];
+
+            const cardData = [
+                { label: 'Total Scans', value: totalEvents.toLocaleString(), icon: '🔍' },
+                { label: 'Daily Average', value: avgEvents.toLocaleString(), icon: '📈' },
+                { label: 'Most Active Stage', value: topStage[0], icon: '🏆' },
+                { label: 'Top Stage Count', value: topStage[1].toLocaleString(), icon: '📊' }
+            ];
+
+            container.innerHTML = cardData.map(card => `
+                <div class="bg-white p-5 rounded-xl shadow-md flex items-start space-x-4">
+                    <div class="text-3xl bg-gray-100 p-3 rounded-lg">${card.icon}</div>
+                    <div>
+                        <p class="text-sm font-medium text-gray-500">${card.label}</p>
+                        <p class="text-2xl font-bold text-gray-900">${card.value}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderChart(data) {
+            const labels = [...data.keys()];
+            const values = [...data.values()];
+            const ctx = chartCanvas.getContext('2d');
+
+            if (analyticsChart) {
+                analyticsChart.destroy();
+            }
+
+            analyticsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Total Events',
+                        data: values,
+                        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                        borderColor: 'rgba(37, 99, 235, 1)',
+                        borderWidth: 2,
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#e5e7eb'
+                            }
+                        },
+                        x: {
+                           grid: {
+                                display: false
+                           }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: '#111827',
+                            titleFont: { size: 14, weight: 'bold' },
+                            bodyFont: { size: 12 },
+                            padding: 10,
+                            cornerRadius: 6
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

@@ -9,7 +9,7 @@ cd /d "%~dp0"
 
 echo.
 echo [Step 1/1] Running Python script to fetch data and push to Git...
-python push_data.py
+.\venv\Scripts\python.exe push_data.py
 
 :: Check if the python script ran successfully
 if %errorlevel% neq 0 (

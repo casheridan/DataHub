@@ -23,5 +23,4 @@ echo.
 echo ===================================================
 echo Analytics update process finished.
 echo ===================================================
-echo.
-pause
+echo

@@ -9,7 +9,7 @@ cd /d "%~dp0"
 
 echo.
 echo [Step 1/1] Running Python script to update database and push to Git...
-python main.py
+./.venv/Scripts/python.exe main.py
 
 :: Check if the python script ran successfully
 if %errorlevel% neq 0 (
@@ -23,5 +23,4 @@ echo.
 echo ===================================================
 echo Update and deployment process finished.
 echo ===================================================
-echo.
-pause
+echo

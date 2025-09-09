@@ -17,9 +17,12 @@ import time
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import datetime
+from dotenv import load_dotenv
 
 import requests
 from tqdm import tqdm
+
+load_dotenv()
 
 # ─── CONFIG ──────────────────────────────────────────────
 BASE_URL = "http://localhost:8081/"

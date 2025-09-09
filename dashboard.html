@@ -221,32 +221,24 @@
                 return isWithinInterval(d.event_date, { start: range.start, end: range.end });
             });
 
-            const oldestRecordDate = rawData.length > 0 ? rawData.reduce((min, p) => p.event_date < min ? p.event_date : min, rawData[0].event_date) : new Date();
-            
-            if (range.start < oldestRecordDate && ['month', 'quarter', 'year'].includes(rangeKey)) {
-                 showNoDataView(`Insufficient data for this period. Earliest record is from ${format(oldestRecordDate, 'MMMM d, yyyy')}.`);
-                 updateStatCards(filteredData);
-                 return;
-            }
-
+            // --- THIS IS THE CORRECTED SECTION ---
+            // The "insufficient data" check has been removed.
             if (filteredData.length === 0) {
-                showNoDataView();
-                updateStatCards(filteredData);
+                showNoDataView(); // Show "No Data Available" if the filter returns nothing
+                updateStatCards([]);
                 return;
             }
+            // --- END OF CORRECTION ---
             
             hideNoDataView();
 
-            // --- THIS IS THE CORRECTED LOGIC ---
             let groupBy;
             let isStackedChart;
 
             if (rangeKey === 'yesterday') {
-                // For 'yesterday', group by machine and use a simple bar chart
                 groupBy = 'stage';
                 isStackedChart = false;
             } else {
-                // For all other views, use a stacked bar chart
                 isStackedChart = true;
                 if (['week', 'last_week'].includes(rangeKey)) {
                     groupBy = 'day';
@@ -256,7 +248,6 @@
                     groupBy = 'month';
                 }
             }
-            // --- END OF CORRECTION ---
 
             const chartData = processChartData(filteredData, groupBy);
             renderChart(chartData, isStackedChart);

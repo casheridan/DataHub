@@ -225,30 +225,42 @@
             
             if (range.start < oldestRecordDate && ['month', 'quarter', 'year'].includes(rangeKey)) {
                  showNoDataView(`Insufficient data for this period. Earliest record is from ${format(oldestRecordDate, 'MMMM d, yyyy')}.`);
-                 updateStatCards([], rangeKey);
+                 updateStatCards(filteredData);
                  return;
             }
 
             if (filteredData.length === 0) {
                 showNoDataView();
-                updateStatCards([], rangeKey);
+                updateStatCards(filteredData);
                 return;
             }
             
             hideNoDataView();
 
             // --- THIS IS THE CORRECTED LOGIC ---
-            let groupBy = 'day'; // Default to grouping by day for Yesterday, This Week, and Last Week
-            if (['month', 'quarter'].includes(rangeKey)) {
-                groupBy = 'week';
-            } else if (rangeKey === 'year') {
-                groupBy = 'month';
+            let groupBy;
+            let isStackedChart;
+
+            if (rangeKey === 'yesterday') {
+                // For 'yesterday', group by machine and use a simple bar chart
+                groupBy = 'stage';
+                isStackedChart = false;
+            } else {
+                // For all other views, use a stacked bar chart
+                isStackedChart = true;
+                if (['week', 'last_week'].includes(rangeKey)) {
+                    groupBy = 'day';
+                } else if (['month', 'quarter'].includes(rangeKey)) {
+                    groupBy = 'week';
+                } else if (rangeKey === 'year') {
+                    groupBy = 'month';
+                }
             }
             // --- END OF CORRECTION ---
 
             const chartData = processChartData(filteredData, groupBy);
-            renderChart(chartData, true); // Always render a stacked chart now
-            updateStatCards(filteredData, rangeKey);
+            renderChart(chartData, isStackedChart);
+            updateStatCards(filteredData);
         }
 
         // (This function remains mostly the same)

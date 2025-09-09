@@ -96,233 +96,257 @@
     </div>
 
     <script type="module">
-        // --- Globals ---
-        let rawData = [];
-        let analyticsChart;
-        const {
-            subDays, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-            startOfQuarter, endOfQuarter, startOfYear, endOfYear, parseISO, isWithinInterval, startOfDay, isSameDay
-        } = window.dateFns;
+    // --- Globals ---
+    let rawData = [];
+    let analyticsChart;
+    const {
+        subDays, format, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
+        startOfQuarter, endOfQuarter, startOfYear, endOfYear, parseISO, isWithinInterval, 
+        startOfDay, isSameDay, getWeek
+    } = window.dateFns;
 
-        // --- DOM Elements ---
-        const loadingState = document.getElementById('loading-state');
-        const errorState = document.getElementById('error-state');
-        const errorMessage = document.getElementById('error-message');
-        const dashboardView = document.getElementById('dashboard-view');
-        const chartCanvas = document.getElementById('analytics-chart');
-        const noDataView = document.getElementById('no-data-view');
-        const chartContainer = document.getElementById('chart-container');
+    // --- DOM Elements ---
+    const loadingState = document.getElementById('loading-state');
+    const errorState = document.getElementById('error-state');
+    const errorMessage = document.getElementById('error-message');
+    const dashboardView = document.getElementById('dashboard-view');
+    const chartCanvas = document.getElementById('analytics-chart');
+    const noDataView = document.getElementById('no-data-view');
+    const chartContainer = document.getElementById('chart-container');
 
-        // --- Initialization ---
-        document.addEventListener('DOMContentLoaded', initializeDashboard);
+    // --- Initialization ---
+    document.addEventListener('DOMContentLoaded', initializeDashboard);
 
-        async function initializeDashboard() {
-            try {
-                const response = await fetch('./analytics_data.json', { cache: 'no-store' });
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}. Could not find 'analytics_data.json'.`);
-                }
-                rawData = await response.json();
-                // Convert date strings to Date objects for easier filtering
-                rawData.forEach(d => d.event_date = parseISO(d.event_date));
-
-                loadingState.classList.add('hidden');
-                dashboardView.classList.remove('hidden');
-                
-                setupEventListeners();
-                // Trigger the default view
-                document.querySelector('[data-range="yesterday"]').click();
-
-            } catch (error) {
-                console.error("Dashboard loading failed:", error);
-                loadingState.classList.add('hidden');
-                errorMessage.textContent = error.message;
-                errorState.classList.remove('hidden');
+    async function initializeDashboard() {
+        try {
+            const response = await fetch('./analytics_data.json', { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}. Could not find 'analytics_data.json'.`);
             }
-        }
+            rawData = await response.json();
+            rawData.forEach(d => d.event_date = parseISO(d.event_date));
 
-        function setupEventListeners() {
-            const filterButtons = document.querySelectorAll('#timeframe-filters button');
-            filterButtons.forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    filterButtons.forEach(b => b.classList.remove('active'));
-                    e.currentTarget.classList.add('active');
-                    const range = e.currentTarget.dataset.range;
-                    updateDashboard(range);
-                });
-            });
-        }
-        
-        function getDateRange(rangeKey) {
-            const now = new Date(); // Use the browser's local time
-            switch(rangeKey) {
-                case 'yesterday': {
-                    const yesterday = subDays(now, 1);
-                    return { start: yesterday, end: yesterday, label: format(yesterday, 'MMMM d, yyyy') };
-                }
-                case 'week': {
-                    const start = startOfWeek(now);
-                    return { start, end: endOfWeek(now), label: `${format(start, 'MMM d')} - ${format(endOfWeek(now), 'MMM d, yyyy')}` };
-                }
-                case 'last_week': {
-                    const start = startOfWeek(subDays(now, 7));
-                    const end = endOfWeek(subDays(now, 7));
-                    return { start, end, label: `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}` };
-                }
-                case 'month': {
-                    const start = startOfMonth(now);
-                    return { start, end: endOfMonth(now), label: format(now, 'MMMM yyyy')};
-                }
-                case 'quarter': {
-                    const start = startOfQuarter(now);
-                    return { start, end: endOfQuarter(now), label: `Q${format(now, 'q')} ${format(now, 'yyyy')}`};
-                }
-                case 'year': {
-                    const start = startOfYear(now);
-                    return { start, end: endOfYear(now), label: format(now, 'yyyy')};
-                }
-            }
-        }
-
-        function updateDashboard(rangeKey) {
-            const range = getDateRange(rangeKey);
-            document.getElementById('chart-title-date-range').textContent = `Date Range: ${range.label}`;
-
-            // --- THIS IS THE CORRECTED FILTER LOGIC ---
-            const filteredData = rawData.filter(d => {
-                // For 'yesterday', we do a simple same-day check.
-                if (rangeKey === 'yesterday') {
-                    return isSameDay(d.event_date, range.start);
-                }
-                // For all other ranges, we use the original interval check.
-                return isWithinInterval(d.event_date, { start: range.start, end: range.end });
-            });
-            // --- END OF CORRECTION ---
-
-            const oldestRecordDate = rawData.length > 0 ? rawData.reduce((min, p) => p.event_date < min ? p.event_date : min, rawData[0].event_date) : new Date();
-
-            if (range.start < oldestRecordDate && ['month', 'quarter', 'year'].includes(rangeKey)) {
-                showNoDataView(`Insufficient data for this period. Earliest record is from ${format(oldestRecordDate, 'MMMM d, yyyy')}.`);
-                updateStatCards([], rangeKey);
-                return;
-            }
-
-            if (filteredData.length === 0) {
-                showNoDataView();
-                updateStatCards([], rangeKey);
-                return;
-            }
-
-            hideNoDataView();
-            const aggregatedData = aggregateDataByStage(filteredData);
-            renderChart(aggregatedData);
-            updateStatCards(filteredData, rangeKey);
-        }
-        
-        function aggregateDataByStage(data) {
-            const stageMap = new Map();
-            data.forEach(item => {
-                const currentCount = stageMap.get(item.stage) || 0;
-                stageMap.set(item.stage, currentCount + item.count);
-            });
-            // Sort by stage name for consistent chart order
-            return new Map([...stageMap.entries()].sort());
-        }
-
-        function showNoDataView(message = "There is no event data for the selected timeframe.") {
-            noDataView.classList.remove('hidden');
-            chartContainer.classList.add('hidden');
-            noDataView.querySelector('p').textContent = message;
-        }
-
-        function hideNoDataView() {
-            noDataView.classList.add('hidden');
-            chartContainer.classList.remove('hidden');
-        }
-        
-        function updateStatCards(data, rangeKey) {
-            const container = document.getElementById('stat-cards');
-            const totalEvents = data.reduce((sum, item) => sum + item.count, 0);
+            loadingState.classList.add('hidden');
+            dashboardView.classList.remove('hidden');
             
-            let avgEvents = 0;
-            const uniqueDays = new Set(data.map(d => format(d.event_date, 'yyyy-MM-dd'))).size;
-            if (uniqueDays > 0) {
-                avgEvents = (totalEvents / uniqueDays).toFixed(1);
+            setupEventListeners();
+            document.querySelector('[data-range="yesterday"]').click();
+
+        } catch (error) {
+            console.error("Dashboard loading failed:", error);
+            loadingState.classList.add('hidden');
+            errorMessage.textContent = error.message;
+            errorState.classList.remove('hidden');
+        }
+    }
+
+    function setupEventListeners() {
+        const filterButtons = document.querySelectorAll('#timeframe-filters button');
+        filterButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                filterButtons.forEach(b => b.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+                const range = e.currentTarget.dataset.range;
+                updateDashboard(range);
+            });
+        });
+    }
+    
+    // (This function remains the same)
+    function getDateRange(rangeKey) {
+        const now = new Date();
+        switch(rangeKey) {
+            case 'yesterday': { const yesterday = subDays(now, 1); return { start: yesterday, end: yesterday, label: format(yesterday, 'MMMM d, yyyy') }; }
+            case 'week': { const start = startOfWeek(now); return { start, end: endOfWeek(now), label: `${format(start, 'MMM d')} - ${format(endOfWeek(now), 'MMM d, yyyy')}` }; }
+            case 'last_week': { const start = startOfWeek(subDays(now, 7)); const end = endOfWeek(subDays(now, 7)); return { start, end, label: `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}` }; }
+            case 'month': { const start = startOfMonth(now); return { start, end: endOfMonth(now), label: format(now, 'MMMM yyyy')}; }
+            case 'quarter': { const start = startOfQuarter(now); return { start, end: endOfQuarter(now), label: `Q${format(now, 'q')} ${format(now, 'yyyy')}`}; }
+            case 'year': { const start = startOfYear(now); return { start, end: endOfYear(now), label: format(now, 'yyyy')}; }
+        }
+    }
+
+    /**
+     * NEW: Processes raw data into a format suitable for a stacked bar chart.
+     * @param {Array} data - The filtered data for the time range.
+     * @param {String} groupBy - The unit to group by ('day', 'week', 'month', or 'stage').
+     */
+    function processChartData(data, groupBy) {
+        if (!data || data.length === 0) return { labels: [], datasets: [], stages: [] };
+
+        const stages = [...new Set(data.map(d => d.stage))].sort();
+        const aggregated = new Map();
+
+        data.forEach(item => {
+            let key;
+            if (groupBy === 'day') {
+                key = format(item.event_date, 'EEE, MMM d'); // Mon, Sep 08
+            } else if (groupBy === 'week') {
+                key = `Week ${getWeek(item.event_date, { weekStartsOn: 1 })}`;
+            } else if (groupBy === 'month') {
+                key = format(item.event_date, 'MMMM');
+            } else { // 'stage' for yesterday view
+                key = item.stage;
             }
-            
-            const topStage = data.length > 0 ? [...aggregateDataByStage(data).entries()].reduce((a, b) => a[1] > b[1] ? a : b) : ['N/A', 0];
 
-            const cardData = [
-                { label: 'Total Scans', value: totalEvents.toLocaleString(), icon: '🔍' },
-                { label: 'Daily Average', value: avgEvents.toLocaleString(), icon: '📈' },
-                { label: 'Most Active Stage', value: topStage[0], icon: '🏆' },
-                { label: 'Top Stage Count', value: topStage[1].toLocaleString(), icon: '📊' }
-            ];
+            if (!aggregated.has(key)) {
+                const stageMap = new Map();
+                stages.forEach(s => stageMap.set(s, 0));
+                aggregated.set(key, stageMap);
+            }
+            const currentStageMap = aggregated.get(key);
+            currentStageMap.set(item.stage, (currentStageMap.get(item.stage) || 0) + item.count);
+        });
 
-            container.innerHTML = cardData.map(card => `
-                <div class="bg-white p-5 rounded-xl shadow-md flex items-start space-x-4">
-                    <div class="text-3xl bg-gray-100 p-3 rounded-lg">${card.icon}</div>
-                    <div>
-                        <p class="text-sm font-medium text-gray-500">${card.label}</p>
-                        <p class="text-2xl font-bold text-gray-900">${card.value}</p>
-                    </div>
+        const labels = [...aggregated.keys()];
+        const datasets = stages.map(stage => {
+            const counts = labels.map(label => aggregated.get(label).get(stage) || 0);
+            return {
+                label: stage,
+                data: counts,
+            };
+        });
+
+        return { labels, datasets, stages };
+    }
+
+
+    function updateDashboard(rangeKey) {
+        const range = getDateRange(rangeKey);
+        document.getElementById('chart-title-date-range').textContent = `Date Range: ${range.label}`;
+
+        const filteredData = rawData.filter(d => isWithinInterval(d.event_date, { start: range.start, end: range.end }));
+
+        if (filteredData.length === 0) {
+            showNoDataView();
+            updateStatCards([]);
+            return;
+        }
+        
+        hideNoDataView();
+
+        // NEW: Determine how to group the data based on the selected range
+        let groupBy = 'stage'; // Default for 'yesterday'
+        if (['week', 'last_week'].includes(rangeKey)) {
+            groupBy = 'day';
+        } else if (['month', 'quarter'].includes(rangeKey)) {
+            groupBy = 'week';
+        } else if (rangeKey === 'year') {
+            groupBy = 'month';
+        }
+
+        const chartData = processChartData(filteredData, groupBy);
+        renderChart(chartData, groupBy !== 'stage'); // Pass true for stacked chart option
+        updateStatCards(filteredData);
+    }
+
+    // (This function remains mostly the same)
+    function updateStatCards(data) {
+        const container = document.getElementById('stat-cards');
+        const totalEvents = data.reduce((sum, item) => sum + item.count, 0);
+        
+        let avgEvents = 0;
+        const uniqueDays = new Set(data.map(d => format(d.event_date, 'yyyy-MM-dd'))).size;
+        if (uniqueDays > 0) {
+            avgEvents = (totalEvents / uniqueDays).toFixed(1);
+        }
+        
+        // Aggregate totals by stage for finding the top stage
+        const stageTotals = new Map();
+        data.forEach(item => {
+            stageTotals.set(item.stage, (stageTotals.get(item.stage) || 0) + item.count);
+        });
+        const topStage = stageTotals.size > 0 ? [...stageTotals.entries()].reduce((a, b) => a[1] > b[1] ? a : b) : ['N/A', 0];
+
+        const cardData = [
+            { label: 'Total Scans', value: totalEvents.toLocaleString(), icon: '🔍' },
+            { label: 'Daily Average', value: avgEvents.toLocaleString(), icon: '📈' },
+            { label: 'Most Active Stage', value: topStage[0], icon: '🏆' },
+            { label: 'Top Stage Count', value: topStage[1].toLocaleString(), icon: '📊' }
+        ];
+        container.innerHTML = cardData.map(card => `
+            <div class="bg-white p-5 rounded-xl shadow-md flex items-start space-x-4">
+                <div class="text-3xl bg-gray-100 p-3 rounded-lg">${card.icon}</div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500">${card.label}</p>
+                    <p class="text-2xl font-bold text-gray-900">${card.value}</p>
                 </div>
-            `).join('');
+            </div>
+        `).join('');
+    }
+    
+    /**
+     * NEW: Renders either a simple or stacked bar chart.
+     * @param {Object} chartData - The processed data from processChartData.
+     * @param {boolean} isStacked - Whether to render a stacked bar chart.
+     */
+    function renderChart(chartData, isStacked) {
+        const { labels, datasets, stages } = chartData;
+        const ctx = chartCanvas.getContext('2d');
+        
+        // Define a color palette for the machines/stages
+        const colors = [
+            'rgba(59, 130, 246, 0.7)', // blue
+            'rgba(239, 68, 68, 0.7)',  // red
+            'rgba(245, 158, 11, 0.7)', // amber
+            'rgba(16, 185, 129, 0.7)', // emerald
+            'rgba(139, 92, 246, 0.7)', // violet
+            'rgba(236, 72, 153, 0.7)', // pink
+        ];
+        
+        const chartDatasets = datasets.map((ds, index) => ({
+            ...ds,
+            backgroundColor: colors[index % colors.length]
+        }));
+
+        if (analyticsChart) {
+            analyticsChart.destroy();
         }
 
-        function renderChart(data) {
-            const labels = [...data.keys()];
-            const values = [...data.values()];
-            const ctx = chartCanvas.getContext('2d');
-
-            if (analyticsChart) {
-                analyticsChart.destroy();
-            }
-
-            analyticsChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Total Events',
-                        data: values,
-                        backgroundColor: 'rgba(59, 130, 246, 0.5)',
-                        borderColor: 'rgba(37, 99, 235, 1)',
-                        borderWidth: 2,
-                        borderRadius: 5
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                color: '#e5e7eb'
-                            }
-                        },
-                        x: {
-                           grid: {
-                                display: false
-                           }
-                        }
+        analyticsChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: chartDatasets,
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: isStacked, // Only show legend for stacked charts
+                        position: 'top',
                     },
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        tooltip: {
-                            backgroundColor: '#111827',
-                            titleFont: { size: 14, weight: 'bold' },
-                            bodyFont: { size: 12 },
-                            padding: 10,
-                            cornerRadius: 6
-                        }
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: isStacked,
+                        grid: { display: false }
+                    },
+                    y: {
+                        stacked: isStacked,
+                        beginAtZero: true,
+                        grid: { color: '#e5e7eb' }
                     }
                 }
-            });
-        }
-    </script>
+            }
+        });
+    }
+
+    // (showNoDataView and hideNoDataView remain the same)
+    function showNoDataView(message = "There is no event data for the selected timeframe.") {
+        noDataView.classList.remove('hidden');
+        chartContainer.classList.add('hidden');
+        if (analyticsChart) analyticsChart.destroy();
+        noDataView.querySelector('p').textContent = message;
+    }
+    function hideNoDataView() {
+        noDataView.classList.add('hidden');
+        chartContainer.classList.remove('hidden');
+    }
+</script>
 </body>
 </html>

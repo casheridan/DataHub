@@ -85,7 +85,7 @@ def git_sync_and_push():
         print("Commit failed, continuing to push.")
 
     # Push to remote
-    if not run_command(["git", "push", remote_url, f"HEAD:{branch_name}"], PROJECT_PATH):
+    if not run_command(["git", "push", f"https://github.com/{GITHUB_USERNAME}/{GITHUB_REPO}.git"], PROJECT_PATH):
         print("Failed to push to remote repository.")
         return
     
